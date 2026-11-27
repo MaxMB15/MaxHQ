@@ -29,7 +29,7 @@ use super::reads::Source;
 use super::recovery::{Restarts, Resumes};
 use super::vendors::one_process_per_agent;
 use crate::agents::AgentKey;
-use crate::drive::{acp, Action, ChildExit, Driver, Launch, Login};
+use crate::drive::{acp, Action, ChildExit, Driver, Launch, Login, ServerLogin};
 
 /// One agent the manager holds: a Claude session, or a Codex thread.
 /// Sub-agents aren't held on their own; they follow their lead.
@@ -428,6 +428,19 @@ pub struct Hold {
     /// Set while the manager waits for the exit of a CLI a write found
     /// ended.
     pub awaiting_exit: bool,
+    /// A local agent's model server as its CLI started on it, and the
+    /// agent's own model then. None for any other CLI, and for a holder an
+    /// earlier run of `maxd` started, whose start this run didn't see.
+    pub served: Option<Served>,
+}
+
+/// The model server a local agent's CLI started on. Only this run of
+/// `maxd` keeps it, so nothing of the token is stored.
+pub struct Served {
+    /// The server's login as the CLI got it.
+    pub server: Arc<ServerLogin>,
+    /// The agent's own model, or none for the server's pick.
+    pub model: Option<String>,
 }
 
 /// A reach or an end put off until the holder's guest link is up.
@@ -473,6 +486,7 @@ impl Hold {
             jobs: 0,
             exit: None,
             awaiting_exit: false,
+            served: None,
         }
     }
 }

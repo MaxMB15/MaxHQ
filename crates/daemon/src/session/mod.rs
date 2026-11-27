@@ -335,7 +335,8 @@ impl Sessions {
     }
 
     /// Shows the agents on a local model account what their server does
-    /// now: loading, its speed and its context size.
+    /// now: loading, its speed and its context size. An idle CLI that
+    /// started on the server's old settings stops, to start again on these.
     pub fn local_run(&self, account: AccountId) {
         let _ = self.tx.send(Input::LocalRun(account));
     }
@@ -1305,7 +1306,10 @@ impl Manager {
             Input::Jobs(jobs) => self.jobs_changed(jobs),
             Input::RecycleCodex => self.recycle_codex(),
             Input::SignedIn(account) => self.signed_in(account).await,
-            Input::LocalRun(account) => self.local_run(account),
+            Input::LocalRun(account) => {
+                self.local_run(account);
+                self.release_changed_servers(Some(account)).await;
+            }
             Input::ResetUsed(account) => self.reset_used(account).await,
             Input::SkillsChanged(changed) => self.skills_changed(changed).await,
             Input::ResumeMoved { resume, done } => self.resume_moved(resume, done),

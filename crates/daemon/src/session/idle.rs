@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use maxhq_protocol::ids::{AccountId, AgentId, SessionId};
-use maxhq_protocol::model::Vendor;
+use maxhq_protocol::model::{LoginKind, Vendor};
 use maxhq_protocol::time::Timestamp;
 use tracing::info;
 
@@ -21,6 +21,7 @@ use super::recovery::continue_message;
 use super::revive::Cut;
 use super::vendors::one_process_per_agent;
 use super::Manager;
+use crate::drive::claude::same_server;
 use crate::drive::{Action, Effects};
 
 /// How often idle agents are looked for.
@@ -47,15 +48,20 @@ impl Idle {
 impl Manager {
     /// Stops the CLI of each agent idle for longer than the device's
     /// setting allows, then each Codex app-server none of whose threads is
-    /// in use. It looks once a minute.
+    /// in use. It looks once a minute, and lets go of local agents' CLIs
+    /// whose model server changed at the same time.
     pub(super) async fn release_idle(&mut self) {
         let now = self.clock.now();
         if self.idle.next_check.is_some_and(|at| at > now) {
             return;
         }
         self.idle.next_check = Some(now + CHECK_EVERY);
+        if self.winding.is_some() {
+            return;
+        }
+        self.release_changed_servers(None).await;
         let minutes = self.device_settings().idle_release_minutes;
-        if minutes == 0 || self.winding.is_some() {
+        if minutes == 0 {
             return;
         }
         let timeout = u64::from(minutes) * 60_000;
@@ -107,6 +113,52 @@ impl Manager {
             }
         }
         self.stop_unused_servers(Some(account));
+    }
+
+    /// Lets go of the CLIs of local agents whose model server changed since
+    /// they started, only `account`'s when one is named, so each starts
+    /// again on the server as it is now with its next message. A key a
+    /// sign-in replaced, a server that turned cloud, a new context size or
+    /// pick of model each count. A CLI an earlier run of `maxd` started
+    /// counts as changed, since this run didn't see what it got, which is
+    /// how an update's new settings reach it. One with something to do
+    /// keeps running until a later look, but an open pane doesn't keep it.
+    pub(super) async fn release_changed_servers(&mut self, account: Option<AccountId>) {
+        if self.winding.is_some() {
+            return;
+        }
+        let leads: Vec<AgentId> = self
+            .held
+            .iter()
+            .filter(|(_, held)| {
+                held.login == LoginKind::ModelServer
+                    && held.guest.is_none()
+                    && account.is_none_or(|account| held.account == account)
+            })
+            .map(|(lead, _)| *lead)
+            .collect();
+        for lead in leads {
+            let Some(session) = self.running_hold(lead) else {
+                continue;
+            };
+            let Some(account) = self.held.get(&lead).map(|held| held.account) else {
+                continue;
+            };
+            // A server that isn't ready can't say what changed.
+            let Some(now) = self.credentials.model_server(account) else {
+                continue;
+            };
+            let same = self
+                .holds
+                .get(&session)
+                .and_then(|hold| hold.served.as_ref())
+                .is_some_and(|served| same_server(&served.server, &now, served.model.as_deref()));
+            if same || self.in_use(lead, session) {
+                continue;
+            }
+            info!(%lead, %session, "stopping a local agent's CLI that runs on its server's old settings");
+            self.release(lead, session).await;
+        }
     }
 
     /// The holder that runs an agent's CLI, while it runs and nothing

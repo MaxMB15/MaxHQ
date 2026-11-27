@@ -9,6 +9,7 @@ use maxhq_protocol::state::Delta;
 use tokio::sync::broadcast;
 
 use super::*;
+use crate::session::holders::Credentials as _;
 
 /// Sets how long an agent stays idle before its CLI stops, with 0 for
 /// never.
@@ -386,4 +387,93 @@ async fn signing_in_to_codex_again_stops_its_idle_app_server() {
     })
     .await;
     assert!(h.agent(thread).asleep);
+}
+
+/// An idle agent on the local account's model server, with its account.
+async fn idle_local(h: &mut Harness) -> (AccountId, AgentId, SessionId) {
+    let local = h.local_account();
+    let mut spec = h.spec(Vendor::Claude, Some("hi"));
+    spec.account = local;
+    let agent = started(h.act(|key| ClientMessage::StartAgent { key, spec }).await);
+    let session = h.holders.last();
+    eventually("the first message", || {
+        h.sent(session).contains(&"hi".to_owned())
+    })
+    .await;
+    let say = Say {
+        agents: vec![h.reported(agent, Activity::Idle)],
+        timeline: vec![upsert(agent, said(agent, "u1", "hi"))],
+        ..Say::default()
+    };
+    h.say(session, &say).await;
+    (local, agent, session)
+}
+
+#[tokio::test]
+async fn a_replaced_server_key_stops_a_local_agents_idle_cli_even_with_a_pane_open() {
+    let mut h = Harness::new();
+    // Never releasing on a timer doesn't keep it on the old key.
+    release_after(&mut h, 0).await;
+    let (local, agent, session) = idle_local(&mut h).await;
+    h.open(agent, None, 50).await;
+    assert_eq!(
+        h.vendors.claude_logins().last(),
+        Some(&LoginKind::ModelServer)
+    );
+
+    // A run on the same settings keeps it.
+    h.sessions.local_run(local);
+    still_runs(&h, session, 1, "the server is as it started on").await;
+
+    // A sign-in replaces the key.
+    let mut server = h
+        .fakes
+        .credentials
+        .model_server(local)
+        .expect("the local account has a server");
+    server.token = maxhq_protocol::secret::Secret::new("signed-in-key".into());
+    h.fakes.credentials.set_model_server(local, server);
+    h.sessions.local_run(local);
+    eventually("the stop", || h.holders.stops(session) == [STOP_GRACE]).await;
+    assert!(h.agent(agent).asleep);
+    assert_eq!(h.agent(agent).link, AgentLink::Live);
+
+    // The next message starts it again, on the new key.
+    assert_eq!(h.send(agent, "go on").await, ActionOutcome::Done);
+    let resumed = h.holders.last();
+    assert_ne!(resumed, session);
+    assert_eq!(h.sent(resumed), ["go on"]);
+    still_runs(&h, resumed, 3, "it runs on the new key").await;
+}
+
+#[tokio::test]
+async fn a_local_agents_cli_waits_for_its_turn_to_end_before_a_new_cap_reaches_it() {
+    let mut h = Harness::new();
+    release_after(&mut h, 0).await;
+    let (local, agent, session) = idle_local(&mut h).await;
+    let say = Say {
+        agents: vec![h.reported(agent, Activity::Busy)],
+        turn: Some(true),
+        ..Say::default()
+    };
+    h.say(session, &say).await;
+
+    // The server counts as cloud now, so its output cap grows.
+    let mut server = h
+        .fakes
+        .credentials
+        .model_server(local)
+        .expect("the local account has a server");
+    server.cloud = true;
+    h.fakes.credentials.set_model_server(local, server);
+    h.sessions.local_run(local);
+    still_runs(&h, session, 3, "a turn runs").await;
+
+    let say = Say {
+        agents: vec![h.reported(agent, Activity::Idle)],
+        turn: Some(false),
+        ..Say::default()
+    };
+    h.say(session, &say).await;
+    stops(&h, session, 2).await;
 }

@@ -38,8 +38,8 @@ use uuid::Uuid;
 use super::drivers::STOP_GRACE;
 use super::folders;
 use super::held::{
-    internal_key, is_busy, Held, Hold, HoldRecord, Internal, Open, Reaching, Server, ServerKey,
-    Target, Waiting, Written,
+    internal_key, is_busy, Held, Hold, HoldRecord, Internal, Open, Reaching, Served, Server,
+    ServerKey, Target, Waiting, Written,
 };
 use super::holders::{self, ChildState, Connection, Ended, Event, Holders, Line};
 use super::idem::Outcome;
@@ -1433,6 +1433,12 @@ impl Manager {
         let mut hold = Hold::new(record, driver);
         hold.folder_check = check;
         hold.env_ask = ask;
+        if let LoginAuth::ModelServer(server) = &login.auth {
+            hold.served = Some(Served {
+                server: server.clone(),
+                model,
+            });
+        }
         self.holds.insert(session, hold);
         self.met_again(session);
         let launch = holders::launch(session, launch);

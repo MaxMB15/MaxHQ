@@ -277,6 +277,18 @@ fn server_env(server: &ServerLogin, model: Option<&str>) -> Vec<(OsString, OsStr
     env
 }
 
+/// Whether an agent's CLI that started on `then`, for an agent running
+/// `model` (or none, for the server's pick), sees the server as `now`
+/// would give it: the same variables, token and tools. A CLI that doesn't
+/// still runs with the old ones, such as a key you replaced or an output
+/// cap from before the server counted as cloud, until it starts again.
+pub fn same_server(then: &ServerLogin, now: &ServerLogin, model: Option<&str>) -> bool {
+    then.token == now.token
+        && then.lean == now.lean
+        && server_env(then, model.or(then.model.as_deref()))
+            == server_env(now, model.or(now.model.as_deref()))
+}
+
 /// `host`'s `claude` with `args` in `cwd`, under `login`'s folder and
 /// with the variables MaxHQ sets and scrubs. `model` is the model a local
 /// agent runs.
@@ -856,6 +868,42 @@ mod tests {
         // A model that says nothing gets the default.
         assert_eq!(output_cap(&cloud, Some("quiet")).as_deref(), Some("32000"));
         assert_eq!(CLOUD_OUTPUT_TOKENS, 32_000);
+    }
+
+    #[test]
+    fn a_cli_runs_on_the_same_server_only_while_what_it_was_given_holds() {
+        let local = server_login(Some("qwen3.6-35b-a3b@ud-q4_k_xl"), Some(65_536));
+        let LoginAuth::ModelServer(then) = &local.auth else {
+            unreachable!()
+        };
+        let with = |change: &dyn Fn(&mut ServerLogin)| {
+            let mut now = ServerLogin::clone(then);
+            change(&mut now);
+            now
+        };
+        assert!(same_server(then, then, None));
+        // What the CLI never sees doesn't count: another model's limit.
+        let other_limit = with(&|now| {
+            now.max_outputs.insert("other".into(), 1024);
+        });
+        assert!(same_server(then, &other_limit, None));
+        // A new key, as a sign-in gives, does.
+        let new_key = with(&|now| now.token = Secret::new("new-key".into()));
+        assert!(!same_server(then, &new_key, None));
+        // So does turning cloud, which lifts the output cap.
+        let cloud = with(&|now| now.cloud = true);
+        assert!(!same_server(then, &cloud, None));
+        // And Fewer tools, a context size or the server's pick of model.
+        assert!(!same_server(then, &with(&|now| now.lean = false), None));
+        assert!(!same_server(
+            then,
+            &with(&|now| now.context = Some(32_768)),
+            None
+        ));
+        let picked = with(&|now| now.model = Some("other".into()));
+        assert!(!same_server(then, &picked, None));
+        // An agent with a model of its own doesn't run the server's pick.
+        assert!(same_server(then, &picked, Some("mine")));
     }
 
     #[test]
